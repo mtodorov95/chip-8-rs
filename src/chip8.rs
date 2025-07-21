@@ -63,6 +63,22 @@ impl Chip8 {
         return Ok(());
     }
 
+    pub fn get_display(&self) -> &[bool; 32 * 64] {
+        &self.display
+    }
+
+    pub fn key_down(&mut self, key: u8) {
+        if key < 16 {
+            self.keypad[key as usize] = true;
+        }
+    }
+
+    pub fn key_up(&mut self, key: u8) {
+        if key < 16 {
+            self.keypad[key as usize] = false;
+        }
+    }
+
     pub fn cycle(&mut self) {
         let opcode = self.fetch_opcode();
         self.execute_opcode(opcode);
@@ -130,7 +146,7 @@ impl Chip8 {
         }
 
         if self.sound_timer > 0 {
-            self.delay_timer -= 1;
+            self.sound_timer -= 1;
         }
     }
 
@@ -205,7 +221,7 @@ impl Chip8 {
     fn op_7xkk(&mut self, opcode: u16) {
         let x = ((opcode & 0x0F00) >> 8) as usize;
         let kk = (opcode & 0x00FF) as u8;
-        self.v[x] += kk;
+        self.v[x] = self.v[x].wrapping_add(kk);
         self.pc += 2;
     }
 
@@ -302,8 +318,7 @@ impl Chip8 {
 
     /// Set I to the nnn address
     fn op_annn(&mut self, opcode: u16) {
-        let nnn = opcode & 0x0FFF;
-        self.i = nnn;
+        self.i = opcode & 0x0FFF;
         self.pc += 2;
     }
 
@@ -348,6 +363,8 @@ impl Chip8 {
                 }
             }
         }
+
+        self.pc += 2;
     }
 
     /// Skips the next instruction if the key stored in Vx is pressed
@@ -412,7 +429,7 @@ impl Chip8 {
     /// Adds Vx to I
     fn op_fx1e(&mut self, opcode: u16) {
         let x = ((opcode & 0x0F00) >> 8) as usize;
-        self.i += self.v[x] as u16;
+        self.i = self.i.wrapping_add(self.v[x] as u16);
         self.pc += 2;
     }
 

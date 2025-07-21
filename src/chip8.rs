@@ -1,5 +1,7 @@
 use std::{fs::File, io::Read, path::Path};
 
+use rand::Rng;
+
 const FONTSET: [u8; 80] = [
     0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
     0x20, 0x60, 0x20, 0x20, 0x70, // 1
@@ -151,127 +153,306 @@ impl Chip8 {
         self.pc = opcode & 0x0FFF;
     }
 
-    fn op_2nnn(&self, opcode: u16) {
-        todo!()
+    /// Calls the subroutine at nnn address
+    fn op_2nnn(&mut self, opcode: u16) {
+        self.stack[self.sp as usize] = self.pc;
+        self.sp += 1;
+        self.pc = opcode & 0x0FFF;
     }
 
-    fn op_3xkk(&self, opcode: u16) {
-        todo!()
+    /// Skips the next instruction if the value of Vx == kk
+    fn op_3xkk(&mut self, opcode: u16) {
+        let x = ((opcode & 0x0F00) >> 8) as usize;
+        let kk = (opcode & 0x00FF) as u8;
+        if self.v[x] == kk {
+            self.pc += 4;
+        } else {
+            self.pc += 2;
+        }
     }
 
-    fn op_4xkk(&self, opcode: u16) {
-        todo!()
+    /// Skips the next instruction if the value of Vx != kk
+    fn op_4xkk(&mut self, opcode: u16) {
+        let x = ((opcode & 0x0F00) >> 8) as usize;
+        let kk = (opcode & 0x00FF) as u8;
+        if self.v[x] != kk {
+            self.pc += 4;
+        } else {
+            self.pc += 2;
+        }
     }
 
-    fn op_5xy0(&self, opcode: u16) {
-        todo!()
+    /// Skips the next instruction if Vx == Vy
+    fn op_5xy0(&mut self, opcode: u16) {
+        let x = ((opcode & 0x0F00) >> 8) as usize;
+        let y = ((opcode & 0x00F0) >> 4) as usize;
+        if self.v[x] == self.v[y] {
+            self.pc += 4;
+        } else {
+            self.pc += 2;
+        }
     }
 
-    fn op_6xkk(&self, opcode: u16) {
-        todo!()
+    /// Sets Vx to kk
+    fn op_6xkk(&mut self, opcode: u16) {
+        let x = ((opcode & 0x0F00) >> 8) as usize;
+        let kk = (opcode & 0x00FF) as u8;
+        self.v[x] = kk;
+        self.pc += 2;
     }
 
-    fn op_7xkk(&self, opcode: u16) {
-        todo!()
+    /// Adds kk to Vx
+    fn op_7xkk(&mut self, opcode: u16) {
+        let x = ((opcode & 0x0F00) >> 8) as usize;
+        let kk = (opcode & 0x00FF) as u8;
+        self.v[x] += kk;
+        self.pc += 2;
     }
 
-    fn op_8xy0(&self, opcode: u16) {
-        todo!()
+    /// Sets Vx to Vy
+    fn op_8xy0(&mut self, opcode: u16) {
+        let x = ((opcode & 0x0F00) >> 8) as usize;
+        let y = ((opcode & 0x00F0) >> 4) as usize;
+        self.v[x] = self.v[y];
+        self.pc += 2;
     }
 
-    fn op_8xy1(&self, opcode: u16) {
-        todo!()
+    /// Sets Vx to Vx | Vy
+    fn op_8xy1(&mut self, opcode: u16) {
+        let x = ((opcode & 0x0F00) >> 8) as usize;
+        let y = ((opcode & 0x00F0) >> 4) as usize;
+        self.v[x] |= self.v[y];
+        self.pc += 2;
     }
 
-    fn op_8xy2(&self, opcode: u16) {
-        todo!()
+    /// Sets Vx to Vx & Vy
+    fn op_8xy2(&mut self, opcode: u16) {
+        let x = ((opcode & 0x0F00) >> 8) as usize;
+        let y = ((opcode & 0x00F0) >> 4) as usize;
+        self.v[x] &= self.v[y];
+        self.pc += 2;
     }
 
-    fn op_8xy3(&self, opcode: u16) {
-        todo!()
+    /// Sets Vx to Vx ^ Vy
+    fn op_8xy3(&mut self, opcode: u16) {
+        let x = ((opcode & 0x0F00) >> 8) as usize;
+        let y = ((opcode & 0x00F0) >> 4) as usize;
+        self.v[x] ^= self.v[y];
+        self.pc += 2;
     }
 
-    fn op_8xy4(&self, opcode: u16) {
-        todo!()
+    /// Adds Vy to Vx and sets Vf to 1 if an overflow occurs
+    fn op_8xy4(&mut self, opcode: u16) {
+        let x = ((opcode & 0x0F00) >> 8) as usize;
+        let y = ((opcode & 0x00F0) >> 4) as usize;
+        let (sum, carry) = self.v[x].overflowing_add(self.v[y]);
+        self.v[x] = sum;
+        self.v[0xF] = if carry { 1 } else { 0 };
+        self.pc += 2;
     }
 
-    fn op_8xy5(&self, opcode: u16) {
-        todo!()
+    /// Subtracts Vy from Vx and sets Vf to 0 if an underflow occurs, else 1
+    fn op_8xy5(&mut self, opcode: u16) {
+        let x = ((opcode & 0x0F00) >> 8) as usize;
+        let y = ((opcode & 0x00F0) >> 4) as usize;
+        let (result, carry) = self.v[x].overflowing_sub(self.v[y]);
+        self.v[x] = result;
+        self.v[0xF] = if carry { 0 } else { 1 };
+        self.pc += 2;
     }
 
-    fn op_8xy6(&self, opcode: u16) {
-        todo!()
+    /// Shifts Vx to the right by 1, storing its least significant bit in
+    /// Vf before the shift
+    fn op_8xy6(&mut self, opcode: u16) {
+        let x = ((opcode & 0x0F00) >> 8) as usize;
+        self.v[0xF] = self.v[x] & 0x01;
+        self.v[x] >>= 1;
+        self.pc += 2;
     }
 
-    fn op_8xy7(&self, opcode: u16) {
-        todo!()
+    /// Sets Vx = Vy - Vx and sets Vf to 0 if an underflow occurs, else 1
+    fn op_8xy7(&mut self, opcode: u16) {
+        let x = ((opcode & 0x0F00) >> 8) as usize;
+        let y = ((opcode & 0x00F0) >> 4) as usize;
+        let (result, carry) = self.v[y].overflowing_sub(self.v[x]);
+        self.v[x] = result;
+        self.v[0xF] = if carry { 0 } else { 1 };
+        self.pc += 2;
     }
 
-    fn op_8xye(&self, opcode: u16) {
-        todo!()
+    /// Shifts Vx to the left by 1. If its most significant bit before the shift
+    /// was set, sets Vf to 1, else 0
+    fn op_8xye(&mut self, opcode: u16) {
+        let x = ((opcode & 0x0F00) >> 8) as usize;
+        self.v[0xF] = (self.v[x] & 0x80) >> 7;
+        self.v[x] <<= 1;
+        self.pc += 2;
     }
 
-    fn op_9xy0(&self, opcode: u16) {
-        todo!()
+    /// Skips the next instruction if Vx != Vy
+    fn op_9xy0(&mut self, opcode: u16) {
+        let x = ((opcode & 0x0F00) >> 8) as usize;
+        let y = ((opcode & 0x00F0) >> 4) as usize;
+        if self.v[x] != self.v[y] {
+            self.pc += 4;
+        } else {
+            self.pc += 2;
+        }
     }
 
-    fn op_annn(&self, opcode: u16) {
-        todo!()
+    /// Set I to the nnn address
+    fn op_annn(&mut self, opcode: u16) {
+        let nnn = opcode & 0x0FFF;
+        self.i = nnn;
+        self.pc += 2;
     }
 
-    fn op_bnnn(&self, opcode: u16) {
-        todo!()
+    /// Jumps to the nnn address plus V0
+    fn op_bnnn(&mut self, opcode: u16) {
+        let nnn = opcode & 0x0FFF;
+        self.pc = nnn + self.v[0] as u16;
     }
 
-    fn op_cxkk(&self, opcode: u16) {
-        todo!()
+    /// Sets Vx to the result of kk & random number
+    fn op_cxkk(&mut self, opcode: u16) {
+        let x = ((opcode & 0x0F00) >> 8) as usize;
+        let kk = (opcode & 0x00FF) as u8;
+        let r: u8 = rand::rng().random();
+        self.v[x] = r & kk;
+        self.pc += 2;
     }
 
-    fn op_dxyn(&self, opcode: u16) {
-        todo!()
+    /// Draws a sprite to the screen at (Vx, Vy), with a width of
+    /// 8 pixels and a height of n pixels.
+    /// Sets Vf to 1 when there is a collision with existing screen pixels, or
+    /// it sets it to 0 if there isn't.
+    fn op_dxyn(&mut self, opcode: u16) {
+        let x = ((opcode & 0x0F00) >> 8) as usize;
+        let y = ((opcode & 0x00F0) >> 4) as usize;
+        let height = (opcode & 0x00F) as usize;
+
+        let vx = self.v[x] as usize;
+        let vy = self.v[y] as usize;
+
+        self.v[0xF] = 0;
+
+        for row in 0..height {
+            let sprite = self.memory[self.i as usize + row];
+            for col in 0..8 {
+                if (sprite & (0x80 >> col)) != 0 {
+                    let pixel_index = (vx + col + (vy + row) * 64) % (32 * 64);
+                    if self.display[pixel_index] {
+                        self.v[0xF] = 1;
+                    }
+                    self.display[pixel_index] ^= true;
+                }
+            }
+        }
     }
 
-    fn op_ex9e(&self, opcode: u16) {
-        todo!()
+    /// Skips the next instruction if the key stored in Vx is pressed
+    fn op_ex9e(&mut self, opcode: u16) {
+        let x = ((opcode & 0x0F00) >> 8) as usize;
+        let key = self.v[x] as usize;
+        if self.keypad[key] {
+            self.pc += 4;
+        } else {
+            self.pc += 2;
+        }
     }
 
-    fn op_exa1(&self, opcode: u16) {
-        todo!()
+    /// Skips the next instruction if the key stored in Vx is not pressed
+    fn op_exa1(&mut self, opcode: u16) {
+        let x = ((opcode & 0x0F00) >> 8) as usize;
+        let key = self.v[x] as usize;
+        if !self.keypad[key] {
+            self.pc += 4;
+        } else {
+            self.pc += 2;
+        }
     }
 
-    fn op_fx07(&self, opcode: u16) {
-        todo!()
+    /// Sets Vx to the value of delay timer
+    fn op_fx07(&mut self, opcode: u16) {
+        let x = ((opcode & 0x0F00) >> 8) as usize;
+        self.v[x] = self.delay_timer;
+        self.pc += 2;
     }
 
-    fn op_fx0a(&self, opcode: u16) {
-        todo!()
+    /// Waits for a key press and stores the value in Vx
+    fn op_fx0a(&mut self, opcode: u16) {
+        let x = ((opcode & 0x0F00) >> 8) as usize;
+
+        // Returns the index of the first key inside keypad that is pressed
+        let key_pressed = self.keypad.iter().position(|&k| k);
+
+        match key_pressed {
+            Some(key) => {
+                self.v[x] = key as u8;
+                self.pc += 2;
+            }
+            None => self.pc -= 2, // Run the same instruction again until something is pressed
+        }
     }
 
-    fn op_fx15(&self, opcode: u16) {
-        todo!()
+    /// Sets the delay timer to the value of Vx
+    fn op_fx15(&mut self, opcode: u16) {
+        let x = ((opcode & 0x0F00) >> 8) as usize;
+        self.delay_timer = self.v[x];
+        self.pc += 2;
     }
 
-    fn op_fx18(&self, opcode: u16) {
-        todo!()
+    /// Sets the sound timer to the value of Vx
+    fn op_fx18(&mut self, opcode: u16) {
+        let x = ((opcode & 0x0F00) >> 8) as usize;
+        self.sound_timer = self.v[x];
+        self.pc += 2;
     }
 
-    fn op_fx1e(&self, opcode: u16) {
-        todo!()
+    /// Adds Vx to I
+    fn op_fx1e(&mut self, opcode: u16) {
+        let x = ((opcode & 0x0F00) >> 8) as usize;
+        self.i += self.v[x] as u16;
+        self.pc += 2;
     }
 
-    fn op_fx29(&self, opcode: u16) {
-        todo!()
+    /// Sets I to the location of the sprite for the character in Vx
+    fn op_fx29(&mut self, opcode: u16) {
+        let x = ((opcode & 0x0F00) >> 8) as usize;
+        self.i += self.v[x] as u16 * 5;
+        self.pc += 2;
     }
 
-    fn op_fx33(&self, opcode: u16) {
-        todo!()
+    ///
+    fn op_fx33(&mut self, opcode: u16) {
+        let x = ((opcode & 0x0F00) >> 8) as usize;
+        let vx = self.v[x];
+
+        self.memory[self.i as usize] = vx / 100;
+        self.memory[(self.i + 1) as usize] = (vx % 100) / 10;
+        self.memory[(self.i + 2) as usize] = vx % 10;
+        self.pc += 2;
     }
 
-    fn op_fx55(&self, opcode: u16) {
-        todo!()
+    /// Stores all registers from 0 to x (inclusive) starting at the address
+    /// of I
+    fn op_fx55(&mut self, opcode: u16) {
+        let x = ((opcode & 0x0F00) >> 8) as usize;
+
+        for index in 0..=x {
+            self.memory[self.i as usize + index] = self.v[index];
+        }
+        self.pc += 2;
     }
 
-    fn op_fx65(&self, opcode: u16) {
-        todo!()
+    /// Fills registers V0 to Vx (inclusive) from memory starting at the address
+    /// of I
+    fn op_fx65(&mut self, opcode: u16) {
+        let x = ((opcode & 0x0F00) >> 8) as usize;
+
+        for index in 0..=x {
+            self.v[index] = self.memory[self.i as usize + index];
+        }
+        self.pc += 2;
     }
 }
